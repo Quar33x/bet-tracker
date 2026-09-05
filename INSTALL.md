@@ -20,13 +20,25 @@
 
 AltServer работает через драйверы Apple, поэтому нужны именно версии **с сайта
 Apple**, а не из Microsoft Store. Это самая частая причина, по которой у людей
-ничего не заводится.
+ничего не заводится: без «настоящего» iCloud AltServer не может авторизовать
+Apple ID.
 
-1. iTunes (64-бит): <https://www.apple.com/itunes/download/win64>
-2. iCloud: скачивается со страницы <https://support.apple.com/ru-ru/icloud/windows>
+Проблема в том, что обычные страницы загрузки Apple теперь перекидывают в
+Microsoft Store. Standalone-установщики при этом никуда не делись, вот прямые
+ссылки на них:
 
-Если iTunes или iCloud уже стоят из Microsoft Store — удали их и поставь заново
-с сайта Apple.
+1. **iTunes (64-бит):**
+   <https://secure-appldnld.apple.com/itunes12/001-80053-20210422-E8A3B28C-A3B2-11EB-BE07-CE1B67FC6302/iTunes64Setup.exe>
+2. **iCloud:**
+   <https://updates.cdn-apple.com/2020/windows/001-39935-20200911-1A70AA56-F448-11EA-8CC0-99D41950005E/iCloudSetup.exe>
+
+Это сборки постарше текущих — именно их AltStore и рекомендует, потому что они
+ставят нужные драйверы обычным способом, а не в песочницу Store. Ставить в
+таком порядке: сначала iTunes, потом iCloud.
+
+Если iTunes, iCloud или «Apple Devices» уже стоят из Microsoft Store — удали их
+перед установкой этих. С версиями из Store AltServer не работает: в их
+документации это отдельным пунктом.
 
 После установки открой iTunes и войди под своим Apple ID.
 
