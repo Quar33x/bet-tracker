@@ -4,6 +4,7 @@ import SwiftData
 @main
 struct BetTrackerApp: App {
     let container: ModelContainer
+    @State private var backendSettings = BackendSettings()
 
     init() {
         do {
@@ -19,6 +20,7 @@ struct BetTrackerApp: App {
         WindowGroup {
             RootTabView()
                 .preferredColorScheme(.dark)
+                .environment(backendSettings)
                 .task {
                     SeedData.populateIfNeeded(context: container.mainContext)
                 }
