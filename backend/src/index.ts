@@ -1,5 +1,8 @@
 import { isAuthorized } from "./auth";
 import { runScheduledIngest } from "./ingest";
+import { ModelRefusedError } from "./llm/client";
+import { BudgetExceededError } from "./llm/cost";
+import { drainSummaryBatches, getPreview, getStoredSummary, queueSummaries } from "./llm/service";
 import { Repo } from "./repo";
 import type { Discipline, Env } from "./types";
 
@@ -55,9 +58,32 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       return json(result);
     }
 
-    default:
-      return json({ error: "not found" }, 404);
+    case "/spend": {
+      const day = Math.floor(Date.now() / 1000) - 24 * 60 * 60;
+      return json({ spentTodayUsd: await repo.spentSince(day) });
+    }
   }
+
+  const preview = /^\/matches\/(\d+)\/preview$/.exec(path);
+  if (preview) {
+    const matchId = Number(preview[1]);
+    const force = url.searchParams.get("force") === "1";
+    try {
+      return json(await getPreview(env, matchId, { force }));
+    } catch (error) {
+      if (error instanceof BudgetExceededError) return json({ error: error.message }, 429);
+      if (error instanceof ModelRefusedError) return json({ error: error.message }, 422);
+      throw error;
+    }
+  }
+
+  const summary = /^\/matches\/(\d+)\/summary$/.exec(path);
+  if (summary) {
+    const stored = await getStoredSummary(env, Number(summary[1]));
+    return stored ? json(stored) : json({ error: "саммари ещё не готово" }, 404);
+  }
+
+  return json({ error: "not found" }, 404);
 }
 
 export default {
@@ -71,6 +97,14 @@ export default {
   },
 
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(runScheduledIngest(env));
+    // Порядок важен: сначала свежие матчи, потом саммари для тех, что
+    // уже завершились, потом сбор готовых батчей с прошлого захода.
+    ctx.waitUntil(
+      (async () => {
+        await runScheduledIngest(env);
+        await drainSummaryBatches(env);
+        await queueSummaries(env);
+      })(),
+    );
   },
 } satisfies ExportedHandler<Env>;

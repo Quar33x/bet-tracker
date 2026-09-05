@@ -148,6 +148,60 @@ export class Repo {
     return results ?? [];
   }
 
+  async matchById(id: number): Promise<MatchDetailRow | null> {
+    return await this.db
+      .prepare(
+        `SELECT m.id, m.discipline, m.source, m.external_id, m.tournament_name,
+                m.team_a_id, m.team_b_id, a.name AS team_a, b.name AS team_b,
+                a.liquipedia_page AS team_a_liquipedia, b.liquipedia_page AS team_b_liquipedia,
+                m.best_of, m.scheduled_at, m.status, m.score_a, m.score_b
+         FROM matches m
+         LEFT JOIN teams a ON a.id = m.team_a_id
+         LEFT JOIN teams b ON b.id = m.team_b_id
+         WHERE m.id = ?`,
+      )
+      .bind(id)
+      .first<MatchDetailRow>();
+  }
+
+  /** Последние сыгранные матчи команды — основа для «формы». */
+  async teamRecentMatches(teamId: number, limit: number): Promise<TeamMatchRow[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT m.scheduled_at, m.tournament_name, m.score_a, m.score_b,
+                m.team_a_id, m.team_b_id,
+                a.name AS team_a, b.name AS team_b
+         FROM matches m
+         LEFT JOIN teams a ON a.id = m.team_a_id
+         LEFT JOIN teams b ON b.id = m.team_b_id
+         WHERE m.status = 'finished' AND (m.team_a_id = ? OR m.team_b_id = ?)
+         ORDER BY m.scheduled_at DESC
+         LIMIT ?`,
+      )
+      .bind(teamId, teamId, limit)
+      .all<TeamMatchRow>();
+    return results ?? [];
+  }
+
+  async headToHeadMatches(teamAId: number, teamBId: number, limit: number): Promise<TeamMatchRow[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT m.scheduled_at, m.tournament_name, m.score_a, m.score_b,
+                m.team_a_id, m.team_b_id,
+                a.name AS team_a, b.name AS team_b
+         FROM matches m
+         LEFT JOIN teams a ON a.id = m.team_a_id
+         LEFT JOIN teams b ON b.id = m.team_b_id
+         WHERE m.status = 'finished'
+           AND ((m.team_a_id = ? AND m.team_b_id = ?) OR (m.team_a_id = ? AND m.team_b_id = ?))
+         ORDER BY m.scheduled_at DESC
+         LIMIT ?`,
+      )
+      .bind(teamAId, teamBId, teamBId, teamAId, limit)
+      .all<TeamMatchRow>();
+    return results ?? [];
+  }
+
   async startJob(job: string): Promise<number> {
     const result = await this.db
       .prepare("INSERT INTO job_runs (job, started_at) VALUES (?, ?)")
@@ -170,4 +224,140 @@ export class Repo {
       .all();
     return results ?? [];
   }
+
+  // MARK: тексты от модели
+
+  async findAnalysis(
+    matchId: number,
+    kind: "preview" | "summary",
+    promptVersion: string,
+  ): Promise<AnalysisRow | null> {
+    return await this.db
+      .prepare(
+        `SELECT match_id, kind, prompt_version, model, body, input_tokens, output_tokens,
+                cost_usd, created_at
+         FROM analyses WHERE match_id = ? AND kind = ? AND prompt_version = ?`,
+      )
+      .bind(matchId, kind, promptVersion)
+      .first<AnalysisRow>();
+  }
+
+  async saveAnalysis(row: {
+    matchId: number;
+    kind: "preview" | "summary";
+    promptVersion: string;
+    model: string;
+    body: string;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    costUsd: number;
+  }): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO analyses (match_id, kind, prompt_version, model, body, input_tokens,
+                               output_tokens, cost_usd, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (match_id, kind, prompt_version) DO UPDATE SET
+           model         = excluded.model,
+           body          = excluded.body,
+           input_tokens  = excluded.input_tokens,
+           output_tokens = excluded.output_tokens,
+           cost_usd      = excluded.cost_usd,
+           created_at    = excluded.created_at`,
+      )
+      .bind(
+        row.matchId,
+        row.kind,
+        row.promptVersion,
+        row.model,
+        row.body,
+        row.inputTokens,
+        row.outputTokens,
+        row.costUsd,
+        now(),
+      )
+      .run();
+  }
+
+  /** Сколько потрачено на модель за последние сутки. */
+  async spentSince(sinceUnix: number): Promise<number> {
+    const row = await this.db
+      .prepare("SELECT COALESCE(SUM(cost_usd), 0) AS total FROM analyses WHERE created_at >= ?")
+      .bind(sinceUnix)
+      .first<{ total: number }>();
+    return row?.total ?? 0;
+  }
+
+  async matchesNeedingSummary(promptVersion: string, limit: number): Promise<MatchRow[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT m.id, m.discipline, m.source, m.external_id, m.tournament_name,
+                a.name AS team_a, b.name AS team_b, m.best_of, m.scheduled_at,
+                m.status, m.score_a, m.score_b
+         FROM matches m
+         LEFT JOIN teams a ON a.id = m.team_a_id
+         LEFT JOIN teams b ON b.id = m.team_b_id
+         WHERE m.status = 'finished'
+           AND NOT EXISTS (
+             SELECT 1 FROM analyses an
+             WHERE an.match_id = m.id AND an.kind = 'summary' AND an.prompt_version = ?
+           )
+         ORDER BY m.scheduled_at DESC
+         LIMIT ?`,
+      )
+      .bind(promptVersion, limit)
+      .all<MatchRow>();
+    return results ?? [];
+  }
+
+  async recordBatch(id: string, kind: string): Promise<void> {
+    await this.db
+      .prepare("INSERT OR REPLACE INTO llm_batches (id, kind, status, created_at) VALUES (?, ?, 'pending', ?)")
+      .bind(id, kind, now())
+      .run();
+  }
+
+  async pendingBatches(): Promise<Array<{ id: string; kind: string; created_at: number }>> {
+    const { results } = await this.db
+      .prepare("SELECT id, kind, created_at FROM llm_batches WHERE status = 'pending' ORDER BY created_at")
+      .all<{ id: string; kind: string; created_at: number }>();
+    return results ?? [];
+  }
+
+  async closeBatch(id: string, status: "done" | "failed"): Promise<void> {
+    await this.db
+      .prepare("UPDATE llm_batches SET status = ?, closed_at = ? WHERE id = ?")
+      .bind(status, now(), id)
+      .run();
+  }
+}
+
+export interface MatchDetailRow extends MatchRow {
+  team_a_id: number | null;
+  team_b_id: number | null;
+  team_a_liquipedia: string | null;
+  team_b_liquipedia: string | null;
+}
+
+export interface TeamMatchRow {
+  scheduled_at: number | null;
+  tournament_name: string | null;
+  score_a: number | null;
+  score_b: number | null;
+  team_a_id: number | null;
+  team_b_id: number | null;
+  team_a: string | null;
+  team_b: string | null;
+}
+
+export interface AnalysisRow {
+  match_id: number;
+  kind: string;
+  prompt_version: string;
+  model: string;
+  body: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  created_at: number;
 }

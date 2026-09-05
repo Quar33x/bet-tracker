@@ -75,6 +75,16 @@ CREATE TABLE analyses (
   PRIMARY KEY (match_id, kind, prompt_version)
 );
 
+-- Отправленные батчи саммари: крон забирает результаты следующим заходом.
+CREATE TABLE llm_batches (
+  id         TEXT    PRIMARY KEY,   -- id батча на стороне Anthropic
+  kind       TEXT    NOT NULL,      -- summary
+  status     TEXT    NOT NULL,      -- pending | done | failed
+  created_at INTEGER NOT NULL,
+  closed_at  INTEGER
+);
+CREATE INDEX idx_llm_batches_status ON llm_batches (status, created_at);
+
 -- Журнал запусков крона: чтобы было видно, что происходило ночью.
 CREATE TABLE job_runs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
