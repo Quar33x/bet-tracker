@@ -1,12 +1,19 @@
 import SwiftUI
+import SwiftData
 
-/// Подключение к своему бэкенду и расходы на модель.
+/// Подключение к своему бэкенду, расходы на модель и управление данными.
 struct SettingsView: View {
     @Environment(BackendSettings.self) private var settings
+    @Environment(\.modelContext) private var context
+
+    @Query private var bets: [Bet]
+    @Query private var transactions: [BankTransaction]
 
     @State private var checkResult: String?
     @State private var isChecking = false
     @State private var spentToday: Double?
+    @State private var showingWipeConfirmation = false
+    @State private var wipeResult: String?
 
     var body: some View {
         @Bindable var settings = settings
@@ -60,6 +67,31 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    HStack {
+                        Text("Ставок в базе")
+                        Spacer()
+                        Text("\(bets.count)")
+                            .foregroundStyle(Theme.textDim)
+                    }
+
+                    Button(role: .destructive) {
+                        showingWipeConfirmation = true
+                    } label: {
+                        Text("Удалить все ставки и историю банка")
+                    }
+
+                    if let wipeResult {
+                        Text(wipeResult)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.textDim)
+                    }
+                } header: {
+                    Text("Данные")
+                } footer: {
+                    Text("Приложение стартует с демонстрационными данными из старой таблицы: 20 ставок за 4-5 сентября. Перед тем как вести реальный учёт, их стоит удалить — иначе они попадут в винрейт, ROI и баланс. Турниры и матчи, заведённые вручную, останутся.")
+                }
+
+                Section {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Source: PandaScore")
                         Text("Liquipedia — CC-BY-SA 3.0")
@@ -76,8 +108,35 @@ struct SettingsView: View {
             .navigationTitle("Настройки")
             .scrollContentBackground(.hidden)
             .background(Theme.background)
+            .confirmationDialog(
+                "Удалить \(bets.count) ставок и \(transactions.count) операций по банку?",
+                isPresented: $showingWipeConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Удалить", role: .destructive) { wipeBettingData() }
+                Button("Отмена", role: .cancel) {}
+            } message: {
+                Text("Действие необратимо.")
+            }
         }
         .task { await refreshSpend() }
+    }
+
+    /// Удаляет только ставки и движения по банку: турниры, команды и матчи
+    /// заведены отдельно и к статистике не относятся.
+    private func wipeBettingData() {
+        let removedBets = bets.count
+        let removedTransactions = transactions.count
+
+        for bet in bets { context.delete(bet) }
+        for transaction in transactions { context.delete(transaction) }
+
+        do {
+            try context.save()
+            wipeResult = "Удалено: ставок \(removedBets), операций \(removedTransactions)."
+        } catch {
+            wipeResult = "Не удалось удалить: \(error.localizedDescription)"
+        }
     }
 
     private func check() async {

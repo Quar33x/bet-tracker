@@ -6,10 +6,24 @@ import SwiftData
 /// стартовым депозитом и одним выводом, четыре турнира тир-1 сцены.
 enum SeedData {
 
+    /// Отметка о том, что сид уже вставлялся.
+    ///
+    /// Проверять одну лишь пустоту базы нельзя: пользователь может удалить
+    /// демо-ставки перед реальным учётом, и тогда при следующем запуске они
+    /// вернулись бы обратно.
+    private static let seededKey = "seed.didPopulate"
+
     @MainActor
     static func populateIfNeeded(context: ModelContext) {
+        guard !UserDefaults.standard.bool(forKey: seededKey) else { return }
+
         let existingCount = (try? context.fetchCount(FetchDescriptor<Bet>())) ?? 0
-        guard existingCount == 0 else { return }
+        guard existingCount == 0 else {
+            UserDefaults.standard.set(true, forKey: seededKey)
+            return
+        }
+
+        defer { UserDefaults.standard.set(true, forKey: seededKey) }
 
         // MARK: Tournaments + teams
 
