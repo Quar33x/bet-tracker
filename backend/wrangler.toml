@@ -1,0 +1,19 @@
+name = "bet-tracker-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-05"
+
+# database_id подставляется после `wrangler d1 create bet-tracker`
+[[d1_databases]]
+binding = "DB"
+database_name = "bet-tracker"
+database_id = "REPLACE_AFTER_D1_CREATE"
+
+# Секреты (не здесь, а через `wrangler secret put`):
+#   APP_TOKEN          — токен, которым приложение авторизуется в этом API
+#   PANDASCORE_KEY     — ключ PandaScore, когда появится
+#   ANTHROPIC_API_KEY  — на этапе LLM
+[triggers]
+crons = ["*/20 * * * *"]
+
+[observability]
+enabled = true
