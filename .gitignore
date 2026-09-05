@@ -1,0 +1,12 @@
+.DS_Store
+/*.xcodeproj
+Payload/
+*.ipa
+build/
+xcuserdata/
+.swiftpm/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
