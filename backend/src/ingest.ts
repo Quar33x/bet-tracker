@@ -64,11 +64,69 @@ export async function ingestDota(
   return result;
 }
 
+/**
+ * Команды CS2, для которых знаем страницу на Liquipedia.
+ *
+ * Без этой привязки не подтянутся агрегаты по раундам — то, ради чего
+ * Liquipedia и нужна. Полноценный мэппинг «моё сокращение → внешний id» —
+ * это Этап 4; пока хватает тир-1 списка.
+ */
+export const CS2_LIQUIPEDIA_PAGES: Readonly<Record<string, string>> = {
+  Vitality: "Team Vitality",
+  "Team Vitality": "Team Vitality",
+  FURIA: "FURIA",
+  "FURIA Esports": "FURIA",
+  G2: "G2 Esports",
+  "G2 Esports": "G2 Esports",
+  NAVI: "Natus Vincere",
+  "Natus Vincere": "Natus Vincere",
+  MOUZ: "MOUZ",
+  Falcons: "Team Falcons",
+  "Team Falcons": "Team Falcons",
+  Spirit: "Team Spirit",
+  "Team Spirit": "Team Spirit",
+  Astralis: "Astralis",
+  Liquid: "Team Liquid",
+  "Team Liquid": "Team Liquid",
+  Heroic: "Heroic",
+  "The MongolZ": "The MongolZ",
+  Aurora: "Aurora Gaming",
+};
+
+/** Проставляет командам CS2 страницу Liquipedia там, где её ещё нет. */
+export async function linkLiquipediaPages(env: Env): Promise<number> {
+  const repo = new Repo(env.DB);
+  let linked = 0;
+
+  for (const [name, page] of Object.entries(CS2_LIQUIPEDIA_PAGES)) {
+    linked += await repo.setLiquipediaPage("cs2", name, page);
+  }
+
+  return linked;
+}
+
 export async function runScheduledIngest(env: Env, fetchImpl: FetchLike = fetch): Promise<IngestResult> {
   const repo = new Repo(env.DB);
   const jobId = await repo.startJob("ingest");
   try {
     const result = await ingestDota(env, fetchImpl);
+
+    // Расписание и результаты по трём дисциплинам — только если есть ключ.
+    if (env.PANDASCORE_KEY) {
+      for (const discipline of ["valorant", "cs2", "dota2"] as const) {
+        try {
+          const panda = await ingestPandaScore(env, discipline, fetchImpl);
+          result.matchesUpserted += panda.upcoming + panda.running + panda.past;
+          result.errors.push(...panda.errors.map((e) => `pandascore/${discipline}: ${e}`));
+        } catch (error) {
+          result.errors.push(
+            `pandascore/${discipline}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+
+    await linkLiquipediaPages(env);
     await repo.finishJob(
       jobId,
       result.errors.length === 0,

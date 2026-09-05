@@ -148,6 +148,21 @@ export class Repo {
     return results ?? [];
   }
 
+  /**
+   * Привязывает команду к странице Liquipedia. Возвращает 1, если запись
+   * действительно изменилась: перезаписывать уже проставленное не нужно.
+   */
+  async setLiquipediaPage(discipline: Discipline, teamName: string, page: string): Promise<number> {
+    const result = await this.db
+      .prepare(
+        `UPDATE teams SET liquipedia_page = ?, updated_at = ?
+         WHERE discipline = ? AND name = ? AND liquipedia_page IS NULL`,
+      )
+      .bind(page, now(), discipline, teamName)
+      .run();
+    return result.meta.changes ?? 0;
+  }
+
   async matchById(id: number): Promise<MatchDetailRow | null> {
     return await this.db
       .prepare(

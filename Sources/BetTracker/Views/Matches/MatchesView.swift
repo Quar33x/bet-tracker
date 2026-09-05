@@ -86,7 +86,7 @@ struct MatchesView: View {
                         Section {
                             ForEach(items) { match in
                                 NavigationLink(value: match) {
-                                    MatchRow(match: match)
+                                    RemoteMatchRow(match: match)
                                 }
                                 .listRowBackground(Theme.surface)
                             }
@@ -131,7 +131,7 @@ struct MatchesView: View {
     }
 }
 
-struct MatchRow: View {
+struct RemoteMatchRow: View {
     let match: RemoteMatch
 
     var body: some View {
